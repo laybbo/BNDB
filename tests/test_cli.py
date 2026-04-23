@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from bndb.cli import build_parser, main
-from bndb.storage.sqlite import init_db, insert_events
+from bndb.db import init_db, insert_events
+from bndb.watchlist import add_watchlist_symbols
 
 
 def test_build_parser_supports_expected_commands() -> None:
@@ -19,6 +20,7 @@ def test_build_parser_supports_expected_commands() -> None:
 def test_report_command_prints_table(tmp_path: Path, monkeypatch, capsys) -> None:
     database_path = tmp_path / "bndb.db"
     init_db(database_path)
+    add_watchlist_symbols(str(database_path), ["BTCUSDT"], category="a")
     insert_events(
         database_path,
         [
@@ -39,5 +41,5 @@ def test_report_command_prints_table(tmp_path: Path, monkeypatch, capsys) -> Non
     main()
 
     output = capsys.readouterr().out
-    assert "symbol" in output
-    assert "BTCUSDT" in output
+    assert "detectors:" in output
+    assert "BTCUSDT [WL-a]" in output

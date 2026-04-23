@@ -4,56 +4,47 @@ from __future__ import annotations
 
 from typing import Any
 
+from bndb.db import load_market_data, utc_now_iso
+from bndb.definitions import load_thresholds, relative_strength_signal
 from bndb.detectors.base import BaseDetector
 
 
 class RelativeStrengthDetector(BaseDetector):
     name = "relative_strength"
-    description = "Detect sustained outperformance versus BTC."
+
+    def __init__(self, thresholds: dict[str, dict[str, float]] | None = None) -> None:
+        self.thresholds = thresholds or load_thresholds()
 
     def detect(
         self,
         symbol: str,
         klines: list[dict[str, Any]],
-        btc_klines: list[dict[str, Any]] | None = None,
+        db_path: str,
+        *,
+        interval: str,
     ) -> list[dict[str, Any]]:
-        if btc_klines is None or len(klines) < 3 or len(btc_klines) < 3:
+        benchmark = load_market_data(db_path, "BTCUSDT", interval)
+        if not benchmark:
             return []
-
-        btc_by_time = {entry["open_time"]: entry for entry in btc_klines}
-        excess_threshold = self.thresholds.get("excess_return", 2.0)
         events: list[dict[str, Any]] = []
-
-        streak: list[bool] = []
-        for current in klines:
-            btc_current = btc_by_time.get(current["open_time"])
-            if btc_current is None:
+        for index in range(min(len(klines), len(benchmark))):
+            signal = relative_strength_signal(
+                klines,
+                benchmark,
+                index,
+                interval=interval,
+                thresholds=self.thresholds,
+            )
+            if signal is None:
                 continue
-            asset_return = _return_pct(current)
-            btc_return = _return_pct(btc_current)
-            excess_return = asset_return - btc_return
-            is_strong = excess_return >= excess_threshold
-            streak.append(is_strong)
-            if len(streak) > 3:
-                streak.pop(0)
-            streak_count = sum(1 for flag in streak if flag)
-            if len(streak) == 3 and streak_count >= 2:
-                score = min(100.0, max(0.0, excess_return * 20 + streak_count * 10))
-                events.append(
-                    {
-                        "symbol": symbol,
-                        "event_type": self.name,
-                        "triggered_at": current["open_time"],
-                        "score": round(score, 6),
-                        "trigger_detail": {
-                            "excess_return": round(excess_return, 6),
-                            "btc_return": round(btc_return, 6),
-                            "streak_count": streak_count,
-                        },
-                    }
-                )
+            events.append(
+                {
+                    "symbol": symbol,
+                    "event_type": self.name,
+                    "triggered_at": klines[index]["open_time"],
+                    "score": signal["score"],
+                    "trigger_detail": signal["detail"],
+                    "created_at": utc_now_iso(),
+                }
+            )
         return events
-
-
-def _return_pct(kline: dict[str, Any]) -> float:
-    return ((float(kline["close"]) - float(kline["open"])) / float(kline["open"])) * 100

@@ -8,16 +8,14 @@ from typing import Any
 
 class BaseDetector(ABC):
     name: str
-    description: str
-
-    def __init__(self, thresholds: dict[str, float] | None = None) -> None:
-        self.thresholds = thresholds or {}
 
     @abstractmethod
     def detect(
         self,
         symbol: str,
         klines: list[dict[str, Any]],
-        btc_klines: list[dict[str, Any]] | None = None,
+        db_path: str,
+        *,
+        interval: str,
     ) -> list[dict[str, Any]]:
-        raise NotImplementedError
+        """Return triggered events for one symbol."""

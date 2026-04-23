@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import argparse
 
-from bndb.config import AppConfig
+from bndb import __version__
+from bndb.config import AppConfig, parse_symbols
 from bndb.pipeline import analyze_events, detect_events, fetch_market_data, render_report, run_pipeline
-from bndb.storage.sqlite import init_db
+from bndb.db import init_db
 
 
 def build_parser() -> argparse.ArgumentParser:
     config = AppConfig()
     parser = argparse.ArgumentParser(prog="bndb")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--db", default=str(config.database_path))
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -25,8 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("analyze")
 
     run_parser = subparsers.add_parser("run")
-    run_parser.add_argument("--symbols", default=",".join(config.default_symbols))
-    run_parser.add_argument("--days", type=int, default=config.default_days)
+    _add_common_market_args(run_parser, config)
 
     report_parser = subparsers.add_parser("report")
     report_parser.add_argument("--limit", type=int, default=50)
@@ -35,11 +36,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     parser = build_parser()
+    config = AppConfig()
     args = parser.parse_args()
     init_db(args.db)
 
     if args.command == "fetch":
-        result = fetch_market_data(_parse_csv(args.symbols), args.interval, args.days, database_path=args.db)
+        result = fetch_market_data(
+            parse_symbols(args.symbols, default_symbols=config.default_symbols),
+            args.interval,
+            args.days,
+            database_path=args.db,
+            config=config,
+        )
         print(f"Inserted market rows: {result.inserted_rows}")
         if result.failures:
             print(f"Failures: {result.failures}")
@@ -47,7 +55,12 @@ def main() -> None:
 
     if args.command == "detect":
         detector_names = _parse_csv(args.detectors)
-        result = detect_events(_parse_csv(args.symbols), detector_names, database_path=args.db)
+        result = detect_events(
+            parse_symbols(args.symbols, default_symbols=config.default_symbols),
+            detector_names,
+            database_path=args.db,
+            interval=config.default_interval,
+        )
         print(f"Inserted events: {result.inserted_events}")
         print(f"Distribution: {result.distribution}")
         if result.failures:
@@ -55,13 +68,19 @@ def main() -> None:
         return
 
     if args.command == "analyze":
-        result = analyze_events(database_path=args.db)
+        result = analyze_events(database_path=args.db, interval=config.default_interval, config=config)
         print(f"Inserted features: {result.inserted_features}")
         print(f"Inserted outcomes: {result.inserted_outcomes}")
         return
 
     if args.command == "run":
-        summary = run_pipeline(_parse_csv(args.symbols), args.days, database_path=args.db)
+        summary = run_pipeline(
+            parse_symbols(args.symbols, default_symbols=config.default_symbols),
+            args.interval,
+            args.days,
+            database_path=args.db,
+            config=config,
+        )
         print("Pipeline summary:")
         print(summary)
         return
