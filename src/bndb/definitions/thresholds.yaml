@@ -1,0 +1,7 @@
+price_shock:
+  price_change_pct: 3.0
+  atr_multiple: 2.0
+volume_shock:
+  volume_multiple: 3.0
+relative_strength:
+  excess_return: 2.0

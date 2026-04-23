@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from bndb.cli import build_parser, main
-from bndb.storage.sqlite import init_db, insert_events
+from bndb.db import init_db, insert_events
+from bndb.watchlist import init_watchlist
 
 
 def test_build_parser_supports_expected_commands() -> None:
@@ -14,11 +15,18 @@ def test_build_parser_supports_expected_commands() -> None:
     assert "analyze" in help_text
     assert "run" in help_text
     assert "report" in help_text
+    assert "watchlist" in help_text
+    watchlist_action = next(
+        action for action in parser._actions if getattr(action, "dest", None) == "command"
+    )
+    watchlist_parser = watchlist_action.choices["watchlist"]
+    assert "fetch-gainers" in watchlist_parser.format_help()
 
 
-def test_report_command_prints_table(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_report_command_prints_watchlist_marker(tmp_path: Path, monkeypatch, capsys) -> None:
     database_path = tmp_path / "bndb.db"
     init_db(database_path)
+    init_watchlist(str(database_path), [{"symbol": "BTCUSDT", "category": "a", "source": "manual"}])
     insert_events(
         database_path,
         [
@@ -39,5 +47,34 @@ def test_report_command_prints_table(tmp_path: Path, monkeypatch, capsys) -> Non
     main()
 
     output = capsys.readouterr().out
-    assert "symbol" in output
-    assert "BTCUSDT" in output
+    assert "BNDB Report" in output
+    assert "BTCUSDT [WL-a]" in output
+
+
+def test_watchlist_fetch_gainers_command(tmp_path: Path, monkeypatch, capsys) -> None:
+    database_path = tmp_path / "bndb.db"
+    init_db(database_path)
+
+    monkeypatch.setattr(
+        "bndb.cli.fetch_gainers_watchlist",
+        lambda *args, **kwargs: ["AAAUSDT", "BBBUSDT"],
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "bndb",
+            "--db",
+            str(database_path),
+            "watchlist",
+            "fetch-gainers",
+            "--top-n",
+            "2",
+            "--min-volume",
+            "1000000",
+        ],
+    )
+    main()
+
+    output = capsys.readouterr().out
+    assert "Fetched gainers: 2" in output
+    assert "AAAUSDT,BBBUSDT" in output

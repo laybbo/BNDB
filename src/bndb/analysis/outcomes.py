@@ -5,26 +5,36 @@ from __future__ import annotations
 from typing import Any
 
 
-def calculate_event_outcome(event: dict[str, Any], symbol_klines: list[dict[str, Any]]) -> dict[str, Any] | None:
+def calculate_event_outcome(
+    event: dict[str, Any],
+    symbol_klines: list[dict[str, Any]],
+    *,
+    interval_minutes: int = 5,
+    outcome_window_minutes: int = 240,
+) -> dict[str, Any] | None:
     event_time = event["triggered_at"]
-    index = next((idx for idx, item in enumerate(symbol_klines) if item["open_time"] == event_time), None)
-    if index is None:
+    event_index = next((idx for idx, item in enumerate(symbol_klines) if item["open_time"] == event_time), None)
+    if event_index is None:
         return None
 
-    future_window = symbol_klines[index + 1 : index + 1 + 240]
-    if len(future_window) < 240:
+    future_bars = outcome_window_minutes // interval_minutes
+    entry_index = event_index + 1
+    future_window = symbol_klines[entry_index : entry_index + future_bars]
+    if len(future_window) < future_bars:
         return None
 
-    entry_price = float(symbol_klines[index]["close"])
+    entry_price = float(future_window[0]["open"])
     max_forward_move = max(_pct_change(entry_price, float(item["high"])) for item in future_window)
-    max_drawdown = min(_pct_change(entry_price, float(item["low"])) for item in future_window)
+    max_drawdown = max(abs(_pct_change(entry_price, float(item["low"]))) for item in future_window)
     close_at_4h = _pct_change(entry_price, float(future_window[-1]["close"]))
     mfe = max_forward_move
-    mae = abs(max_drawdown)
+    mae = max_drawdown
 
-    if mfe > 2 and close_at_4h > 0:
+    if max_forward_move > 5.0:
         path_type = "trending"
-    elif mae > mfe and close_at_4h < 0:
+    elif max_forward_move < 2.0 and max_drawdown < 2.0:
+        path_type = "sideways"
+    elif max_drawdown > max_forward_move:
         path_type = "reversal"
     else:
         path_type = "sideways"

@@ -1,7 +1,6 @@
-"""Backward-compatible re-exports for Binance fetch helpers."""
+"""Market data fetchers."""
 
 from bndb.fetchers.binance import (
-    INTERVAL_TO_MINUTES,
     build_session,
     fetch_klines,
     list_top_gainers,
@@ -10,7 +9,6 @@ from bndb.fetchers.binance import (
 )
 
 __all__ = [
-    "INTERVAL_TO_MINUTES",
     "build_session",
     "fetch_klines",
     "list_top_gainers",

@@ -5,17 +5,17 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bndb"
 version = "0.1.0"
-description = "Binance market data toolkit with pandas processing and SQLite storage."
+description = "Binance futures abnormal-move research toolkit with SQLite storage."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
-    "pandas==3.0.2",
-    "requests==2.33.1",
+    "PyYAML>=6.0",
+    "requests>=2.32,<3",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest==9.0.2",
+    "pytest>=9,<10",
 ]
 
 [project.scripts]
