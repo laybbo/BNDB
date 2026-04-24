@@ -1,0 +1,3 @@
+project: BNDB
+active_goal: Initialize Hermes Memory System
+current_status: Memory scaffold initialized with current state, spec/archive directories, and an empty index log.
