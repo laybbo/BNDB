@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from bndb.analysis import calculate_event_outcome, extract_event_features
@@ -21,6 +22,7 @@ from bndb.db import (
     insert_outcomes,
     list_events_without_features,
     list_events_without_outcomes,
+    list_symbols,
     load_market_data,
 )
 from bndb.detectors import create_detectors
@@ -76,6 +78,12 @@ def fetch_market_data(
     return FetchResult(inserted_rows=inserted_rows, failures=failures)
 
 
+def _resolve_symbols(symbols: list[str], database_path: str | Path, interval: str) -> list[str]:
+    if symbols and symbols[0] == "all":
+        return list_symbols(database_path, interval)
+    return symbols
+
+
 def detect_events(
     symbols: list[str],
     detector_names: list[str],
@@ -89,8 +97,9 @@ def detect_events(
     distribution: Counter[str] = Counter()
     failures: dict[str, str] = {}
     btc_klines = load_market_data(database_path, "BTCUSDT", interval)
+    resolved_symbols = _resolve_symbols(symbols, database_path, interval)
 
-    for symbol in symbols:
+    for symbol in resolved_symbols:
         try:
             symbol_klines = load_market_data(database_path, symbol, interval)
             symbol_events: list[dict[str, Any]] = []
@@ -117,27 +126,52 @@ def analyze_events(
 ) -> AnalyzeResult:
     app_config = config or AppConfig()
     init_db(database_path)
-    feature_rows: list[dict[str, Any]] = []
-    outcome_rows: list[dict[str, Any]] = []
-    btc_klines = load_market_data(database_path, "BTCUSDT", interval)
+    interval_minutes = _interval_minutes(interval)
 
-    for event in list_events_without_features(database_path):
-        symbol_klines = load_market_data(database_path, event["symbol"], interval)
+    # Pre-load all market data once per symbol (not once per event)
+    btc_klines = load_market_data(database_path, "BTCUSDT", interval)
+    btc_index: dict[str, int] = {item["open_time"]: idx for idx, item in enumerate(btc_klines)}
+
+    events_for_features = list_events_without_features(database_path)
+    events_for_outcomes = list_events_without_outcomes(database_path)
+    all_symbols = {e["symbol"] for e in events_for_features} | {e["symbol"] for e in events_for_outcomes}
+
+    kline_cache: dict[str, list[dict[str, Any]]] = {}
+    index_cache: dict[str, dict[str, int]] = {}
+    total_symbols = len(all_symbols)
+    for i, symbol in enumerate(all_symbols, 1):
+        print(f"  Loading market data [{i}/{total_symbols}]: {symbol}")
+        klines = load_market_data(database_path, symbol, interval)
+        kline_cache[symbol] = klines
+        index_cache[symbol] = {item["open_time"]: idx for idx, item in enumerate(klines)}
+
+    # Phase 1: Features
+    feature_rows: list[dict[str, Any]] = []
+    total_feat = len(events_for_features)
+    for i, event in enumerate(events_for_features):
+        if (i + 1) % 10000 == 0 or i + 1 == total_feat:
+            print(f"  Features: {i + 1}/{total_feat}")
+        symbol = event["symbol"]
         feature_rows.extend(
             extract_event_features(
                 event,
-                symbol_klines,
+                kline_cache[symbol],
                 btc_klines,
-                interval_minutes=_interval_minutes(interval),
+                interval_minutes=interval_minutes,
             )
         )
 
-    for event in list_events_without_outcomes(database_path):
-        symbol_klines = load_market_data(database_path, event["symbol"], interval)
+    # Phase 2: Outcomes
+    outcome_rows: list[dict[str, Any]] = []
+    total_out = len(events_for_outcomes)
+    for i, event in enumerate(events_for_outcomes):
+        if (i + 1) % 10000 == 0 or i + 1 == total_out:
+            print(f"  Outcomes: {i + 1}/{total_out}")
+        symbol = event["symbol"]
         outcome = calculate_event_outcome(
             event,
-            symbol_klines,
-            interval_minutes=_interval_minutes(interval),
+            kline_cache[symbol],
+            interval_minutes=interval_minutes,
             outcome_window_minutes=app_config.outcome_window_minutes,
         )
         if outcome is not None:
